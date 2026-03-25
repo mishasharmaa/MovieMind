@@ -36,7 +36,8 @@ Dual Recommendation Modes
     - Movie details page
 
 ## Performance Optimizations
-```python @st.cache_data``` used for:
+```@st.cache_data``` used for:
+
     - Dataset loading
     - Similarity computation
     - API calls
