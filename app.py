@@ -1,20 +1,108 @@
-import streamlit as st
 import pandas as pd
 import ast
 import requests
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import streamlit as st
 
-# 🔑 YOUR TMDB API KEY
-API_KEY = "da67100863d10a25814a032a0cbe4bc1"
+# ================= CONFIG =================
+st.set_page_config(
+    page_title="MovieMind",
+    page_icon="🎬",
+    layout="wide"
+)
 
-# -------------------------
-# LOAD + PROCESS DATA
-# -------------------------
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+API_KEY = os.getenv("API_KEY")
+
+# ================= STYLE =================
+st.markdown("""
+<style>
+
+/* MAIN APP BACKGROUND */
+.stApp {
+    background-color: #0E1117;
+}
+
+/* REMOVE ALL TOP SPACE */
+.block-container {
+    padding-top: 0rem !important;
+}
+
+/* REMOVE STREAMLIT HEADER */
+header {
+    display: none !important;
+}
+
+/* REMOVE TOOLBAR */
+div[data-testid="stToolbar"] {
+    display: none !important;
+}
+
+/* REMOVE DECORATION BAR */
+div[data-testid="stDecoration"] {
+    display: none !important;
+}
+
+/* REMOVE ANY TOP EMPTY SPACE */
+div[data-testid="stAppViewContainer"] {
+    padding-top: 0rem !important;
+}
+section.main > div {
+    padding-top: 0rem !important;
+}
+
+/* TEXT */
+h1, h2, h3, p, label {
+    color: white !important;
+}
+
+/* CARD */
+.card {
+    background-color: #1c1f26;
+    padding: 12px;
+    border-radius: 12px;
+    text-align: center;
+    margin-bottom: 15px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    transition: 0.2s;
+}
+
+.card:hover {
+    transform: scale(1.05);
+}
+
+/* HEADER BOX */
+.header-box {
+    background-color: #1c1f26;
+    padding: 0px 20px 15px 20px;  /* 👈 LESS TOP PADDING */
+    border-radius: 12px;
+    margin-bottom: 20px;
+}
+.header-box h1 {
+    margin-top: 0px !important;
+    padding-top: 0px !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# ================= SESSION =================
+if "page" not in st.session_state:
+    st.session_state.page = "home"
+
+if "results" not in st.session_state:
+    st.session_state.results = None
+
+# ================= LOAD DATA =================
 @st.cache_data
 def load_data():
-    movies = pd.read_csv("tmdb_5000_movies2.csv")
-    credits = pd.read_csv("tmdb_5000_credits2.csv")
+    movies = pd.read_csv("tmdb_5000_movies.csv")
+    credits = pd.read_csv("tmdb_5000_credits.csv")
 
     movies = movies.merge(credits, on='title')
     movies = movies[['movie_id','title','overview','genres','keywords','cast','crew']]
@@ -25,20 +113,12 @@ def load_data():
 
     movies['genres'] = movies['genres'].apply(convert)
     movies['keywords'] = movies['keywords'].apply(convert)
-
-    def convert_cast(text):
-        L = []
-        for i in ast.literal_eval(text)[:3]:
-            L.append(i['name'])
-        return L
-
-    movies['cast'] = movies['cast'].apply(convert_cast)
+    movies['cast'] = movies['cast'].apply(lambda x: [i['name'] for i in ast.literal_eval(x)[:3]])
 
     def fetch_director(text):
         return [i['name'] for i in ast.literal_eval(text) if i['job'] == 'Director']
 
     movies['crew'] = movies['crew'].apply(fetch_director)
-
     movies['overview'] = movies['overview'].apply(lambda x: x.split())
 
     movies['tags'] = movies['overview'] + movies['genres'] + movies['keywords'] + movies['cast'] + movies['crew']
@@ -46,64 +126,166 @@ def load_data():
 
     return movies
 
-# -------------------------
-# VECTORIZE
-# -------------------------
-#@st.cache_data
-def compute_similarity(_movies):
-    cv = CountVectorizer(max_features=5000, stop_words='english')
-    vectors = cv.fit_transform(movies['tags']).toarray()
-    similarity = cosine_similarity(vectors)
-    return similarity, cv
-
 movies = load_data()
-similarity, cv = compute_similarity(movies)
 
-# -------------------------
-# POSTER
-# -------------------------
-def fetch_poster(movie_id):
-    url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={API_KEY}"
+# ================= SIMILARITY =================
+@st.cache_data
+def compute_similarity(_movies):
+    tfidf = TfidfVectorizer(max_features=3000, stop_words='english')
+    vectors = tfidf.fit_transform(_movies['tags']).toarray()
+    similarity = cosine_similarity(vectors)
+    return similarity
+
+similarity = compute_similarity(movies)
+
+# ================= API =================
+@st.cache_data(ttl=3600)
+def fetch_movie_details(movie_id):
+    url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={API_KEY}&append_to_response=credits"
     data = requests.get(url).json()
-    poster_path = data.get('poster_path')
 
-    if poster_path:
-        return "https://image.tmdb.org/t/p/w500/" + poster_path
-    else:
-        return "https://via.placeholder.com/500x750?text=No+Image"
+    poster = "https://via.placeholder.com/500x750?text=No+Image"
+    if data.get('poster_path'):
+        poster = "https://image.tmdb.org/t/p/w500/" + data['poster_path']
 
-# -------------------------
-# RECOMMEND
-# -------------------------
+    rating = data.get("vote_average", "N/A")
+    year = data.get("release_date", "N/A")[:4]
+    runtime = data.get("runtime", "N/A")
+    overview = data.get("overview", "N/A")
+
+    director = "N/A"
+    cast = []
+
+    if "credits" in data:
+        for crew in data["credits"]["crew"]:
+            if crew["job"] == "Director":
+                director = crew["name"]
+
+        cast = [actor["name"] for actor in data["credits"]["cast"][:5]]
+
+    return poster, rating, year, runtime, overview, director, cast
+
+# ================= RECOMMEND =================
 def recommend(movie):
     index = movies[movies['title'] == movie].index[0]
     distances = similarity[index]
 
-    movie_list = sorted(list(enumerate(distances)), reverse=True, key=lambda x: x[1])[1:6]
+    movie_list = sorted(list(enumerate(distances)), reverse=True, key=lambda x: x[1])[1:13]
 
-    names = []
-    posters = []
-
+    results = []
     for i in movie_list:
         movie_id = movies.iloc[i[0]].movie_id
-        names.append(movies.iloc[i[0]].title)
-        posters.append(fetch_poster(movie_id))
+        title = movies.iloc[i[0]].title
+        poster, rating, year, runtime, overview, director, cast = fetch_movie_details(movie_id)
+        results.append((title, poster, rating, year, runtime, overview, director, cast, movie_id))
 
-    return names, posters
+    return results
 
-# -------------------------
-# UI
-# -------------------------
-st.title("🎬 Movie Mind")
-st.write("Use your Mind to find the Movies you love!")
+# ================= UI =================
+if st.session_state.page == "home":
 
-selected_movie = st.selectbox("Select a movie", movies['title'].values)
+    # HEADER
+    st.markdown("<div class='header-box'>", unsafe_allow_html=True)
 
-if st.button("Recommend"):
-    names, posters = recommend(selected_movie)
+    st.title("🎬 MovieMind")
+    st.caption("AI-Powered Movie Recommendation System")
 
-    cols = st.columns(5)
-    for i in range(5):
-        with cols[i]:
-            st.text(names[i])
-            st.image(posters[i])
+    st.markdown("""
+### 🎯 Discover Movies Smarter
+
+Find movies similar to your favorites using machine learning.  
+This system analyzes genres, cast, keywords, and storylines to generate intelligent recommendations.
+""")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # ABOUT
+    st.markdown("""
+### About This App
+
+MovieMind is a **content-based recommendation system** powered by NLP.
+
+- Uses **TF-IDF vectorization** to extract meaningful features  
+- Applies **cosine similarity** to compare movies  
+- Combines genres, cast, keywords, and plot descriptions  
+- Fetches real-time data using the TMDB API  
+""")
+
+    # INPUT
+    selected_movie = st.selectbox("Choose a movie", movies['title'].values)
+
+    sort_option = st.selectbox("Sort by", ["None", "Rating", "Year"])
+
+    if st.button("Get Recommendations"):
+        with st.spinner("Finding similar movies..."):
+            st.session_state.results = recommend(selected_movie)
+
+    # EMPTY STATE
+    if not st.session_state.results:
+        st.info("Select a movie to get recommendations 🎬")
+
+    # RESULTS
+    if st.session_state.results:
+
+        results = st.session_state.results
+
+        # SORTING
+        if sort_option == "Rating":
+            results = sorted(results, key=lambda x: float(x[2]) if x[2] != "N/A" else 0, reverse=True)
+
+        elif sort_option == "Year":
+            results = sorted(results, key=lambda x: x[3] if x[3] != "N/A" else "0", reverse=True)
+
+        num_cols = 5
+        rows = [results[i:i+num_cols] for i in range(0, len(results), num_cols)]
+
+        for row_idx, row in enumerate(rows):
+            cols = st.columns(num_cols)
+
+            for col_idx, item in enumerate(row):
+                title, poster, rating, year, runtime, overview, director, cast, movie_id = item
+
+                with cols[col_idx]:
+                    st.markdown("<div class='card'>", unsafe_allow_html=True)
+
+                    st.image(poster)
+
+                    if st.button(title, key=f"movie_{row_idx}_{col_idx}"):
+                        st.session_state.movie_id = movie_id
+                        st.session_state.page = "details"
+                        st.rerun()
+
+                    st.markdown(f"""
+⭐ **{rating}**  
+📅 {year}
+""")
+
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+elif st.session_state.page == "details":
+
+    if st.button("⬅ Back"):
+        st.session_state.page = "home"
+        st.rerun()
+
+    poster, rating, year, runtime, overview, director, cast = fetch_movie_details(st.session_state.movie_id)
+
+    title = movies[movies['movie_id']==st.session_state.movie_id].iloc[0].title
+
+    col1, col2 = st.columns([1,2])
+
+    with col1:
+        st.image(poster)
+
+    with col2:
+        st.title(title)
+        st.write(f"Rating: {rating}")
+        st.write(f"Release: {year}")
+        st.write(f"Runtime: {runtime} min")
+        st.write(f"Director: {director}")
+
+        if cast:
+            st.write("Cast: " + ", ".join(cast))
+
+        st.markdown("### Overview")
+        st.write(overview)

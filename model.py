@@ -5,12 +5,11 @@ import requests
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# 🔑 YOUR TMDB API KEY
+
 API_KEY = "YOUR_API_KEY_HERE"
 
-# -------------------------
+
 # LOAD + PROCESS DATA
-# -------------------------
 @st.cache_data
 def load_data():
     movies = pd.read_csv("tmdb_5000_movies.csv")
@@ -46,9 +45,8 @@ def load_data():
 
     return movies
 
-# -------------------------
+
 # VECTORIZE
-# -------------------------
 @st.cache_data
 def compute_similarity(movies):
     cv = CountVectorizer(max_features=5000, stop_words='english')
@@ -59,9 +57,8 @@ def compute_similarity(movies):
 movies = load_data()
 similarity, cv = compute_similarity(movies)
 
-# -------------------------
+
 # POSTER
-# -------------------------
 def fetch_poster(movie_id):
     url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={API_KEY}"
     data = requests.get(url).json()
@@ -72,9 +69,8 @@ def fetch_poster(movie_id):
     else:
         return "https://via.placeholder.com/500x750?text=No+Image"
 
-# -------------------------
+
 # RECOMMEND
-# -------------------------
 def recommend(movie):
     index = movies[movies['title'] == movie].index[0]
     distances = similarity[index]
@@ -91,10 +87,9 @@ def recommend(movie):
 
     return names, posters
 
-# -------------------------
+
 # UI
-# -------------------------
-st.title("🎬 CineMatch AI")
+st.title("🎬 Movie Mind")
 st.write("Find movies you'll love using AI")
 
 selected_movie = st.selectbox("Select a movie", movies['title'].values)
