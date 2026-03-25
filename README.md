@@ -9,10 +9,10 @@ Genre-Based Browsing – Explore movies by category (like Netflix)
 The system uses Natural Language Processing (NLP) and cosine similarity to generate intelligent recommendations based on movie metadata.
 
 ## Features
-- Dual Recommendation Modes
-    - Movie-Based Mode
-        - Select a movie (e.g., Avatar)
-        - Get similar movies based on content similarity
+Dual Recommendation Modes
+- Movie-Based Mode
+    - Select a movie (e.g., Avatar)
+    - Get similar movies based on content similarity
 - Genre-Based Mode
     - No movie required
     - Browse movies by genre (e.g., Thriller, Action, Comedy)
@@ -36,7 +36,7 @@ The system uses Natural Language Processing (NLP) and cosine similarity to gener
     - Movie details page
 
 ## Performance Optimizations
-'@st.cache_data' used for:
+```python @st.cache_data``` used for:
     - Dataset loading
     - Similarity computation
     - API calls
