@@ -16,52 +16,35 @@ from dotenv import load_dotenv
 import os
 
 load_dotenv()
-
 API_KEY = os.getenv("API_KEY")
 
 # ================= STYLE =================
 st.markdown("""
 <style>
-
-/* MAIN APP BACKGROUND */
 .stApp {
     background-color: #0E1117;
 }
-
-/* REMOVE ALL TOP SPACE */
 .block-container {
     padding-top: 0rem !important;
 }
-
-/* REMOVE STREAMLIT HEADER */
 header {
     display: none !important;
 }
-
-/* REMOVE TOOLBAR */
 div[data-testid="stToolbar"] {
     display: none !important;
 }
-
-/* REMOVE DECORATION BAR */
 div[data-testid="stDecoration"] {
     display: none !important;
 }
-
-/* REMOVE ANY TOP EMPTY SPACE */
 div[data-testid="stAppViewContainer"] {
     padding-top: 0rem !important;
 }
 section.main > div {
     padding-top: 0rem !important;
 }
-
-/* TEXT */
 h1, h2, h3, p, label {
     color: white !important;
 }
-
-/* CARD */
 .card {
     background-color: #1c1f26;
     padding: 12px;
@@ -71,23 +54,18 @@ h1, h2, h3, p, label {
     box-shadow: 0 4px 10px rgba(0,0,0,0.3);
     transition: 0.2s;
 }
-
 .card:hover {
     transform: scale(1.05);
 }
-
-/* HEADER BOX */
 .header-box {
     background-color: #1c1f26;
-    padding: 0px 20px 15px 20px;  /* 👈 LESS TOP PADDING */
+    padding: 0px 20px 15px 20px;
     border-radius: 12px;
     margin-bottom: 20px;
 }
 .header-box h1 {
     margin-top: 0px !important;
-    padding-top: 0px !important;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -127,6 +105,9 @@ def load_data():
     return movies
 
 movies = load_data()
+
+# GENRE LIST
+all_genres = sorted(list(set(g for sublist in movies['genres'] for g in sublist)))
 
 # ================= SIMILARITY =================
 @st.cache_data
@@ -184,7 +165,6 @@ def recommend(movie):
 # ================= UI =================
 if st.session_state.page == "home":
 
-    # HEADER
     st.markdown("<div class='header-box'>", unsafe_allow_html=True)
 
     st.title("🎬 MovieMind")
@@ -192,49 +172,56 @@ if st.session_state.page == "home":
 
     st.markdown("""
 ### 🎯 Discover Movies Smarter
-
-Find movies similar to your favorites using machine learning.  
-This system analyzes genres, cast, keywords, and storylines to generate intelligent recommendations.
+Browse by movie OR explore genres like Netflix.
 """)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ABOUT
-    st.markdown("""
-### About This App
-
-MovieMind is a **content-based recommendation system** powered by NLP.
-
-- Uses **TF-IDF vectorization** to extract meaningful features  
-- Applies **cosine similarity** to compare movies  
-- Combines genres, cast, keywords, and plot descriptions  
-- Fetches real-time data using the TMDB API  
-""")
-
     # INPUT
-    selected_movie = st.selectbox("Choose a movie", movies['title'].values)
+    selected_movie = st.selectbox(
+        "Choose a movie (optional)",
+        ["None"] + list(movies['title'].values)
+    )
 
-    sort_option = st.selectbox("Sort by", ["None", "Rating", "Year"])
+    sort_option = st.selectbox("Mode", ["Movie Recommendation", "Browse by Genre"])
 
-    if st.button("Get Recommendations"):
-        with st.spinner("Finding similar movies..."):
+    selected_genre = None
+    if sort_option == "Browse by Genre":
+        selected_genre = st.selectbox("Select Genre", all_genres)
+
+    if st.button("Get Results"):
+
+        # 🎬 Movie mode
+        if sort_option == "Movie Recommendation" and selected_movie != "None":
             st.session_state.results = recommend(selected_movie)
 
-    # EMPTY STATE
-    if not st.session_state.results:
-        st.info("Select a movie to get recommendations 🎬")
+        # 🎯 Genre mode
+        elif sort_option == "Browse by Genre" and selected_genre:
+            genre_results = []
+
+            for i in range(len(movies)):
+                genres = movies.iloc[i]['genres']
+
+                if selected_genre in genres:
+                    movie_id = movies.iloc[i].movie_id
+                    title = movies.iloc[i].title
+
+                    poster, rating, year, runtime, overview, director, cast = fetch_movie_details(movie_id)
+
+                    genre_results.append((title, poster, rating, year, runtime, overview, director, cast, movie_id))
+
+                if len(genre_results) == 20:
+                    break
+
+            st.session_state.results = genre_results
+
+        else:
+            st.warning("Please select a movie or choose a genre")
 
     # RESULTS
     if st.session_state.results:
 
         results = st.session_state.results
-
-        # SORTING
-        if sort_option == "Rating":
-            results = sorted(results, key=lambda x: float(x[2]) if x[2] != "N/A" else 0, reverse=True)
-
-        elif sort_option == "Year":
-            results = sorted(results, key=lambda x: x[3] if x[3] != "N/A" else "0", reverse=True)
 
         num_cols = 5
         rows = [results[i:i+num_cols] for i in range(0, len(results), num_cols)]
@@ -247,19 +234,14 @@ MovieMind is a **content-based recommendation system** powered by NLP.
 
                 with cols[col_idx]:
                     st.markdown("<div class='card'>", unsafe_allow_html=True)
-
                     st.image(poster)
 
-                    if st.button(title, key=f"movie_{row_idx}_{col_idx}"):
+                    if st.button(title, key=f"{row_idx}_{col_idx}"):
                         st.session_state.movie_id = movie_id
                         st.session_state.page = "details"
                         st.rerun()
 
-                    st.markdown(f"""
-⭐ **{rating}**  
-📅 {year}
-""")
-
+                    st.markdown(f"⭐ **{rating}**  \n📅 {year}")
                     st.markdown("</div>", unsafe_allow_html=True)
 
 elif st.session_state.page == "details":
@@ -272,20 +254,20 @@ elif st.session_state.page == "details":
 
     title = movies[movies['movie_id']==st.session_state.movie_id].iloc[0].title
 
-    col1, col2 = st.columns([1,2])
+    col1, col2 = st.columns([1, 2])
 
     with col1:
         st.image(poster)
 
     with col2:
         st.title(title)
-        st.write(f"Rating: {rating}")
-        st.write(f"Release: {year}")
-        st.write(f"Runtime: {runtime} min")
-        st.write(f"Director: {director}")
+        st.write(f"⭐ Rating: {rating}")
+        st.write(f"📅 Release: {year}")
+        st.write(f"⏱ Runtime: {runtime} min")
+        st.write(f"🎬 Director: {director}")
 
         if cast:
-            st.write("Cast: " + ", ".join(cast))
+            st.write("🎭 Cast: " + ", ".join(cast))
 
         st.markdown("### Overview")
         st.write(overview)
